@@ -173,9 +173,9 @@ function Login({ onLogin }) {
   };
 
   return (
-    <div style={{minHeight:"100vh",  width:"100vw",display:"flex",alignItems:"center",justifyContent:"center",position:"relative",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
-      <div style={{position:"absolute",inset:0,backgroundImage:`url(${AZTU_IMG})`,backgroundSize:"cover",backgroundRepeat:"no-repeat", backgroundAttachment:"fixed", backgroundPosition:"center",backgroundRepeat: "no-repeat", backgroundAttachment: "fixed",width: "100%",height: "100%",filter:"brightness(0.7)"}} />
-      <div style={{position:"absolute",inset:0,background:"linear-gradient(150deg,rgba(8,20,55,0.55),rgba(14,40,90,0.25))"}} />
+    <div style={{minHeight:"100vh",width:"100vw",display:"flex",alignItems:"center",justifyContent:"center",position:"fixed",inset:0,fontFamily:"'Segoe UI',system-ui,sans-serif",overflow:"auto"}}>
+      <div style={{position:"fixed",inset:0,backgroundImage:`url(${AZTU_IMG})`,backgroundSize:"cover",backgroundPosition:"center",filter:"brightness(0.7)"}} />
+      <div style={{position:"fixed",inset:0,background:"linear-gradient(150deg,rgba(8,20,55,0.55),rgba(14,40,90,0.25))"}} />
       <div style={{position:"relative",zIndex:1,width:420,background:"rgba(255,255,255,0.97)",borderRadius:20,padding:40,boxShadow:"0 32px 80px rgba(0,0,0,0.5)"}}>
         <div style={{textAlign:"center",marginBottom:30}}>
           <div style={{width:62,height:62,background:"#0f2246",borderRadius:15,display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:14}}>
@@ -228,13 +228,13 @@ function Dashboard({ rooms, equipment, reservations, user }) {
         <h2 style={{margin:0,fontSize:21,fontWeight:800,color:"#0f2246"}}>Xoş gəldiniz, {user.name.split(" ")[0]}!</h2>
         <p style={{margin:"4px 0 0",color:"#64748b",fontSize:13}}>AzTU Resurs İdarəetmə Sistemi — ümumi baxış</p>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24}}>
+      <div className="stat-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24}}>
         <StatCard label="Otaq / Lab"         value={rooms.length}     sub={`${bos} boş`}         icon="rooms"     color="#1a3a7c"/>
         <StatCard label="Avadanlıq"           value={equipment.length} sub={`${ishlek} işlək`}    icon="equipment" color="#0891b2"/>
         <StatCard label="Gözləyən rezerv"    value={pending.length}   sub="təsdiq gözləyir"      icon="calendar"  color="#ca8a04"/>
         <StatCard label="Kritik avadanlıq"   value={critical.length}  sub="texniki hal aşağı"    icon="warning"   color="#dc2626"/>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:18}}>
+      <div className="two-col-grid" style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:18}}>
         <div style={{background:"white",borderRadius:12,padding:22,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
           <h3 style={{margin:"0 0 16px",fontSize:14,fontWeight:700,color:"#0f2246"}}>Son rezervasiyalar</h3>
           {reservations.slice(0,5).map(r=>(
@@ -627,7 +627,7 @@ function Reservations({ rooms, reservations, setReservations, user, preRoom, set
             <strong>Otaq {rejTarget.room}</strong> · {rejTarget.user}<br/>
             <span style={{color:"#64748b",fontSize:12}}>{rejTarget.date} · {rejTarget.t1}–{rejTarget.t2} · {rejTarget.purpose}</span>
           </div>
-          <Fld label="İmtina səbəbi (müəllimə göstəriləcək)">
+          <Fld label="İmtina səbəbi">
             <Txa rows={3} value={rejReason} onChange={e=>setRejReason(e.target.value)} placeholder="Məsələn: Həmin vaxt otaq artıq istifadədədir..."/>
           </Fld>
           <BtnRow>
@@ -767,6 +767,158 @@ function Monitoring({ rooms, equipment }) {
   );
 }
 
+// ─── AI ASSISTANT ─────────────────────────────────────────────────────────────
+function AIAssistant({ rooms, reservations }) {
+  const [open, setOpen]     = useState(false);
+  const [query, setQuery]   = useState("");
+  const [msgs, setMsgs]     = useState([
+    { role:"assistant", text:"Salam! Mən AzTU RMS AI Köməkçisiyəm. Otaq tövsiyəsi, rezervasiya planlaması və ya avadanlıq analizi üçün sual verin." }
+  ]);
+  const [loading, setLoading] = useState(false);
+  const msgsEndRef = useCallback(node => { if(node) node.scrollIntoView({behavior:"smooth"}); }, [loading]);
+
+  // Build rich system prompt with full live data
+  const buildSystemPrompt = () => {
+    const today = new Date().toISOString().split("T")[0];
+    const bosOtaqlar   = rooms.filter(r=>r.status==="boş");
+    const meshgulOtaqlar = rooms.filter(r=>r.status==="məşğul");
+    const rezervOtaqlar  = rooms.filter(r=>r.status==="rezerv");
+    const todayRes     = reservations.filter(r=>r.date===today);
+    const pendingRes   = reservations.filter(r=>r.status==="gözlənilir");
+    const approvedRes  = reservations.filter(r=>r.status==="təsdiqlənib");
+
+    const otaqSatiri = rooms.map(r=>
+      `  • ${r.name} (${r.type}, mərtəbə ${r.floor}, ${r.capacity} nəfər, ${r.area}m²) — VƏZİYYƏT: ${r.status}`
+    ).join("\n");
+
+    const rezervSatiri = reservations.slice(-10).map(r=>
+      `  • Otaq ${r.room} | ${r.user} | ${r.date} ${r.t1}-${r.t2} | Məqsəd: ${r.purpose} | Status: ${r.status}`
+    ).join("\n");
+
+    return `Sən AzTU (Azərbaycan Texniki Universiteti) Resurs İdarəetmə Sisteminin (RMS) ağıllı köməkçisisən.
+
+CARI VƏZİYYƏT (${today}):
+Otaq statistikası:
+  - Cəmi: ${rooms.length} otaq/lab
+  - Boş: ${bosOtaqlar.length} (${bosOtaqlar.map(r=>r.name).join(", ") || "yoxdur"})
+  - Məşğul: ${meshgulOtaqlar.length} (${meshgulOtaqlar.map(r=>r.name).join(", ") || "yoxdur"})
+  - Rezerv: ${rezervOtaqlar.length} (${rezervOtaqlar.map(r=>r.name).join(", ") || "yoxdur"})
+
+BÜTÜN OTAQLAR:
+${otaqSatiri}
+
+REZERVASIYA VƏZİYYƏTİ:
+  - Bu gün rezervasiya: ${todayRes.length} ədəd
+  - Gözlənilən (təsdiqlənməmiş): ${pendingRes.length}
+  - Təsdiqlənmiş: ${approvedRes.length}
+  - Cəmi rezervasiya (son qeydlər):
+${rezervSatiri}
+
+QAYDALAR:
+- Həmişə Azərbaycan dilində cavab ver
+- Qısa, dəqiq və faydalı ol (3-5 cümlə)
+- Konkret rəqəmlər və otaq adları istifadə et
+- Tövsiyə verərkən boş otaqları üstün tut
+- Sistem məlumatlarına əsaslanmayan sualları da ümumi biliklə cavabla`;
+  };
+
+  const send = async (overrideMsg) => {
+    const userMsg = (overrideMsg || query).trim();
+    if (!userMsg || loading) return;
+
+    const newMsgs = [...msgs, {role:"user", text:userMsg}];
+    setMsgs(newMsgs);
+    setQuery("");
+    setLoading(true);
+
+    // Build conversation history for API (exclude initial greeting from history)
+    const history = newMsgs.slice(1).map(m => ({
+      role: m.role === "user" ? "user" : "assistant",
+      content: m.text
+    }));
+
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:500,
+          system: buildSystemPrompt(),
+          messages: history
+        })
+      });
+      const data = await resp.json();
+      if (data.error) {
+        setMsgs(m=>[...m, {role:"assistant", text:`Xəta: ${data.error.message || "API xətası baş verdi."}`}]);
+      } else {
+        const text = data.content?.[0]?.text || "Cavab ala bilmədim.";
+        setMsgs(m=>[...m, {role:"assistant", text}]);
+      }
+    } catch(e) {
+      setMsgs(m=>[...m, {role:"assistant", text:"Bağlantı xətası. Zəhmət olmasa yenidən cəhd edin."}]);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <>
+      {/* FAB */}
+      <button onClick={()=>setOpen(o=>!o)} style={{position:"fixed",bottom:24,right:24,width:52,height:52,borderRadius:"50%",background:"linear-gradient(135deg,#1a3a7c,#0891b2)",border:"none",cursor:"pointer",boxShadow:"0 6px 20px rgba(26,58,124,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,transition:"transform .2s",transform:open?"rotate(45deg)":"none"}} title="AI Köməkçi">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>
+      </button>
+
+      {/* Chat panel */}
+      {open && (
+        <div style={{position:"fixed",bottom:86,right:24,width:340,background:"white",borderRadius:16,boxShadow:"0 16px 48px rgba(0,0,0,0.2)",zIndex:200,display:"flex",flexDirection:"column",maxHeight:"60vh"}}>
+          <div style={{background:"linear-gradient(135deg,#0f2246,#0891b2)",borderRadius:"16px 16px 0 0",padding:"14px 16px",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:32,height:32,background:"rgba(255,255,255,0.2)",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            </div>
+            <div>
+              <div style={{color:"white",fontWeight:700,fontSize:13}}>AI Köməkçi</div>
+              <div style={{color:"rgba(255,255,255,0.6)",fontSize:10}}>Powered by Claude</div>
+            </div>
+          </div>
+
+          <div style={{flex:1,overflowY:"auto",padding:"14px 14px 8px",display:"flex",flexDirection:"column",gap:10,minHeight:0}}>
+            {msgs.map((m,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+                <div style={{maxWidth:"82%",background:m.role==="user"?"#1a3a7c":"#f1f5f9",color:m.role==="user"?"white":"#1e293b",borderRadius:m.role==="user"?"12px 12px 2px 12px":"12px 12px 12px 2px",padding:"8px 12px",fontSize:12,lineHeight:1.5}}>
+                  {m.text}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div style={{display:"flex",justifyContent:"flex-start"}}>
+                <div style={{background:"#f1f5f9",borderRadius:"12px 12px 12px 2px",padding:"10px 14px",display:"flex",gap:4,alignItems:"center"}}>
+                  {[0,1,2].map(i=><span key={i} style={{width:6,height:6,borderRadius:"50%",background:"#94a3b8",display:"inline-block",animation:`bounce 1.2s ${i*0.2}s infinite`}}/>)}
+                </div>
+              </div>
+            )}
+            <div ref={msgsEndRef}/>
+          </div>
+
+          <div style={{padding:"8px 12px 12px",borderTop:"1px solid #f1f5f9",display:"flex",gap:8}}>
+            <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Sual yazın..." style={{flex:1,border:"1.5px solid #e5e7eb",borderRadius:8,padding:"8px 10px",fontSize:12,outline:"none",fontFamily:"inherit"}}/>
+            <button onClick={send} disabled={loading||!query.trim()} style={{padding:"8px 12px",background:loading||!query.trim()?"#cbd5e1":"#1a3a7c",color:"white",border:"none",borderRadius:8,cursor:loading||!query.trim()?"not-allowed":"pointer",fontSize:12,fontWeight:600}}>→</button>
+          </div>
+
+          <div style={{padding:"0 12px 10px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:"#94a3b8"}}>Sürətli suallar:</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:4,justifyContent:"center"}}>
+              {["Boş otaqlar hansılardır?","Bu gün neçə rezervasiya var?","Ən böyük boş otağı tövsiyə et","Gözləyən rezervasiyalar neçədir?"].map(q=>(
+                <button key={q} onClick={()=>send(q)} style={{fontSize:10,padding:"3px 8px",background:"#f0f4ff",color:"#1a3a7c",border:"1px solid #c7d2fe",borderRadius:12,cursor:"pointer",fontFamily:"inherit"}}>{q}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      <style>{`@keyframes bounce{0%,80%,100%{transform:scale(0)}40%{transform:scale(1)}}`}</style>
+    </>
+  );
+}
+
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,setUser]       = useState(null);
@@ -775,6 +927,7 @@ export default function App() {
   const [equipment,setEq]    = useState(INIT_EQ);
   const [reservations,setRes]= useState(INIT_RES);
   const [preRoom,setPreRoom] = useState(null);
+  const [sideOpen,setSideOpen] = useState(false);
 
   const login  = u => { setUser(u); setPage(ACCESS[u.role][0]); };
   const logout = ()=> { setUser(null); setPage(null); };
@@ -782,48 +935,97 @@ export default function App() {
   if(!user) return <Login onLogin={login}/>;
   const allowed = ACCESS[user.role];
 
-  return (
-    <div style={{display:"flex",minHeight:"100vh",background:"#f1f5f9",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
-      <aside style={{width:236,background:"#0f2246",display:"flex",flexDirection:"column",flexShrink:0,position:"fixed",top:0,left:0,bottom:0,zIndex:50}}>
-        <div style={{padding:"22px 18px",borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
-          <div style={{display:"flex",alignItems:"center",gap:11}}>
-            <div style={{width:36,height:36,background:"rgba(255,255,255,0.12)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="building" size={20} color="white"/></div>
-            <div>
-              <div style={{color:"white",fontWeight:800,fontSize:15,lineHeight:1}}>AzTU RMS</div>
-              <div style={{color:"rgba(255,255,255,0.4)",fontSize:10,marginTop:2}}>v2.1 · Demo</div>
-            </div>
+  const navTo = (id) => { setPage(id); setSideOpen(false); };
+
+  const Sidebar = () => (
+    <aside style={{width:236,background:"#0f2246",display:"flex",flexDirection:"column",flexShrink:0,position:"fixed",top:0,left:0,bottom:0,zIndex:50}}>
+      <div style={{padding:"22px 18px",borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:11}}>
+          <div style={{width:36,height:36,background:"rgba(255,255,255,0.12)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center"}}><Ic n="building" size={20} color="white"/></div>
+          <div>
+            <div style={{color:"white",fontWeight:800,fontSize:15,lineHeight:1}}>AzTU RMS</div>
+            <div style={{color:"rgba(255,255,255,0.4)",fontSize:10,marginTop:2}}>v2.2 · Demo</div>
           </div>
         </div>
-        <nav style={{flex:1,padding:"14px 10px"}}>
-          {allowed.map(id=>(
-            <button key={id} onClick={()=>setPage(id)} style={{width:"100%",display:"flex",alignItems:"center",gap:11,padding:"10px 12px",borderRadius:8,border:"none",background:page===id?"rgba(255,255,255,0.13)":"transparent",color:page===id?"white":"rgba(255,255,255,0.48)",cursor:"pointer",fontSize:13,fontWeight:page===id?700:500,marginBottom:2,textAlign:"left",transition:"all .15s"}}>
-              <Ic n={PAGE_META[id].icon} size={17}/>{PAGE_META[id].label}
-            </button>
-          ))}
-        </nav>
-        <div style={{padding:"14px 18px",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
-          <div style={{marginBottom:8}}>
-            <span style={{fontSize:10,padding:"3px 9px",borderRadius:20,background:ROLE_COLOR[user.role]+"55",color:"white",fontWeight:600}}>{ROLE_LABEL[user.role]}</span>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:11}}>
-            <div style={{width:33,height:33,borderRadius:8,background:ROLE_COLOR[user.role],display:"flex",alignItems:"center",justifyContent:"center",color:"white",fontSize:13,fontWeight:700,flexShrink:0}}>{user.name[0]}</div>
-            <div style={{overflow:"hidden"}}>
-              <div style={{color:"white",fontSize:12,fontWeight:600,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name}</div>
-              <div style={{color:"rgba(255,255,255,0.38)",fontSize:11,marginTop:2}}>{user.title}</div>
-            </div>
-          </div>
-          <button onClick={logout} style={{width:"100%",display:"flex",alignItems:"center",gap:7,padding:"7px 10px",background:"rgba(255,255,255,0.06)",border:"none",borderRadius:6,color:"rgba(255,255,255,0.45)",cursor:"pointer",fontSize:12}}>
-            <Ic n="logout" size={13}/> Çıxış
+      </div>
+      <nav style={{flex:1,padding:"14px 10px"}}>
+        {allowed.map(id=>(
+          <button key={id} onClick={()=>navTo(id)} style={{width:"100%",display:"flex",alignItems:"center",gap:11,padding:"10px 12px",borderRadius:8,border:"none",background:page===id?"rgba(255,255,255,0.13)":"transparent",color:page===id?"white":"rgba(255,255,255,0.48)",cursor:"pointer",fontSize:13,fontWeight:page===id?700:500,marginBottom:2,textAlign:"left",transition:"all .15s"}}>
+            <Ic n={PAGE_META[id].icon} size={17}/>{PAGE_META[id].label}
           </button>
+        ))}
+      </nav>
+      <div style={{padding:"14px 18px",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+        <div style={{marginBottom:8}}>
+          <span style={{fontSize:10,padding:"3px 9px",borderRadius:20,background:ROLE_COLOR[user.role]+"55",color:"white",fontWeight:600}}>{ROLE_LABEL[user.role]}</span>
         </div>
-      </aside>
-      <main style={{marginLeft:236,flex:1,padding:30,minHeight:"100vh"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:11}}>
+          <div style={{width:33,height:33,borderRadius:8,background:ROLE_COLOR[user.role],display:"flex",alignItems:"center",justifyContent:"center",color:"white",fontSize:13,fontWeight:700,flexShrink:0}}>{user.name[0]}</div>
+          <div style={{overflow:"hidden"}}>
+            <div style={{color:"white",fontSize:12,fontWeight:600,lineHeight:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.name}</div>
+            <div style={{color:"rgba(255,255,255,0.38)",fontSize:11,marginTop:2}}>{user.title}</div>
+          </div>
+        </div>
+        <button onClick={logout} style={{width:"100%",display:"flex",alignItems:"center",gap:7,padding:"7px 10px",background:"rgba(255,255,255,0.06)",border:"none",borderRadius:6,color:"rgba(255,255,255,0.45)",cursor:"pointer",fontSize:12}}>
+          <Ic n="logout" size={13}/> Çıxış
+        </button>
+      </div>
+    </aside>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f1f5f9",fontFamily:"'Segoe UI',system-ui,sans-serif"}}>
+      <style>{`
+        @media (max-width:768px){
+          .desktop-sidebar{display:none!important;}
+          .main-content{margin-left:0!important;padding:16px!important;}
+          .mobile-topbar{display:flex!important;}
+          .stat-grid{grid-template-columns:1fr 1fr!important;}
+          .two-col-grid{grid-template-columns:1fr!important;}
+        }
+        @media (min-width:769px){
+          .mobile-topbar{display:none!important;}
+          .mobile-sidebar-overlay{display:none!important;}
+        }
+      `}</style>
+
+      {/* Desktop sidebar - fixed, no wrapper div needed */}
+      <div className="desktop-sidebar" style={{}}>
+        <Sidebar/>
+      </div>
+
+      {/* Mobile topbar */}
+      <div className="mobile-topbar" style={{display:"none",position:"fixed",top:0,left:0,right:0,height:54,background:"#0f2246",zIndex:60,alignItems:"center",padding:"0 16px",gap:12}}>
+        <button onClick={()=>setSideOpen(o=>!o)} style={{width:36,height:36,background:"rgba(255,255,255,0.1)",border:"none",borderRadius:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
+        <div style={{color:"white",fontWeight:800,fontSize:15}}>AzTU RMS</div>
+        <div style={{marginLeft:"auto",width:30,height:30,borderRadius:7,background:ROLE_COLOR[user.role],display:"flex",alignItems:"center",justifyContent:"center",color:"white",fontSize:12,fontWeight:700}}>{user.name[0]}</div>
+      </div>
+
+      {/* Mobile sidebar overlay */}
+      {sideOpen && (
+        <div className="mobile-sidebar-overlay" style={{display:"block"}}>
+          <div onClick={()=>setSideOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:55}}/>
+          <div style={{position:"fixed",top:0,left:0,bottom:0,width:236,zIndex:56}}>
+            <Sidebar/>
+          </div>
+        </div>
+      )}
+
+      <main className="main-content" style={{marginLeft:236,flex:1,padding:30,minHeight:"100vh",boxSizing:"border-box",maxWidth:"calc(100vw - 236px)"}}>
+        {/* Mobile spacer for topbar */}
+        <div className="mobile-topbar" style={{height:54,display:"none"}}/>
+
         {page==="dashboard"    && <Dashboard    rooms={rooms} equipment={equipment} reservations={reservations} user={user}/>}
         {page==="rooms"        && <Rooms        rooms={rooms} user={user} setPage={setPage} setPreRoom={setPreRoom}/>}
         {page==="equipment"    && <Equipment    equipment={equipment} setEquipment={setEq} user={user}/>}
         {page==="reservations" && <Reservations rooms={rooms} reservations={reservations} setReservations={setRes} user={user} preRoom={preRoom} setPreRoom={setPreRoom}/>}
         {page==="monitoring"   && <Monitoring   rooms={rooms} equipment={equipment}/>}
       </main>
+
+      {/* AI Assistant floating button */}
+      <AIAssistant rooms={rooms} reservations={reservations}/>
     </div>
   );
 }
