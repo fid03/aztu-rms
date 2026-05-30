@@ -770,7 +770,7 @@ function Monitoring({ rooms, equipment }) {
 // ─── AI ASSISTANT (Gemini) ────────────────────────────────────────────────────
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
-function buildSystemPrompt(rooms, reservations) {
+function buildSystemPrompt(rooms, reservations, equipment) {
   const today = new Date().toISOString().split("T")[0];
   const bosOtaqlar     = rooms.filter(r=>r.status==="boş");
   const meshgulOtaqlar = rooms.filter(r=>r.status==="məşğul");
@@ -787,34 +787,59 @@ function buildSystemPrompt(rooms, reservations) {
     `  • Otaq ${r.room} | ${r.user} | ${r.date} ${r.t1}-${r.t2} | Məqsəd: ${r.purpose} | Status: ${r.status}`
   ).join("\n");
 
+  const avadanliqSatiri = (equipment||[]).map(e=>
+    `  • ${e.name} (${e.type||e.category||"—"}) — Otaq: ${e.room||"—"} | Vəziyyət: ${e.status} | Texniki hal: ${e.cond!=null?e.cond+"%":"—"}`
+  ).join("\n");
+
+  const ishlek  = (equipment||[]).filter(e=>e.status==="işlək").length;
+  const xarab   = (equipment||[]).filter(e=>e.status==="sıradan çıxıb").length;
+  const xidmet  = (equipment||[]).filter(e=>e.status==="xidmətdə").length;
+  const kritik  = (equipment||[]).filter(e=>e.cond!=null&&e.cond<50).map(e=>e.name).join(", ");
+
+  // Sensor simulation (same formula as Monitoring component)
+  const tick = Math.floor(Date.now()/10000);
+  const s = (i,t,mn,mx) => mn + Math.round((Math.sin(i*1.3+t*0.07)+1)/2*(mx-mn));
+  const sensorSatiri = rooms.slice(0,6).map((r,i)=>
+    `  • ${r.name}: Temperatur ${s(i,tick,18,32)}°C | İşıq ${s(i+2,tick,150,800)} lx | Rütubət ${s(i+4,tick,30,80)}%`
+  ).join("\n");
+
   return `Sən AzTU (Azərbaycan Texniki Universiteti) Resurs İdarəetmə Sisteminin (RMS) ağıllı köməkçisisən.
 
 CARI VƏZİYYƏT (${today}):
 Otaq statistikası:
   - Cəmi: ${rooms.length} otaq/lab
-  - Boş: ${bosOtaqlar.length} (${bosOtaqlar.map(r=>r.name).join(", ") || "yoxdur"})
-  - Məşğul: ${meshgulOtaqlar.length} (${meshgulOtaqlar.map(r=>r.name).join(", ") || "yoxdur"})
-  - Rezerv: ${rezervOtaqlar.length} (${rezervOtaqlar.map(r=>r.name).join(", ") || "yoxdur"})
+  - Boş: ${bosOtaqlar.length} (${bosOtaqlar.map(r=>r.name).join(", ")||"yoxdur"})
+  - Məşğul: ${meshgulOtaqlar.length} (${meshgulOtaqlar.map(r=>r.name).join(", ")||"yoxdur"})
+  - Rezerv: ${rezervOtaqlar.length} (${rezervOtaqlar.map(r=>r.name).join(", ")||"yoxdur"})
 
 BÜTÜN OTAQLAR:
 ${otaqSatiri}
 
 REZERVASIYA VƏZİYYƏTİ:
-  - Bu gün rezervasiya: ${todayRes.length} ədəd
-  - Gözlənilən (təsdiqlənməmiş): ${pendingRes.length}
+  - Bu gün: ${todayRes.length} rezervasiya
+  - Gözlənilən: ${pendingRes.length}
   - Təsdiqlənmiş: ${approvedRes.length}
   - Son qeydlər:
 ${rezervSatiri}
 
+AVADANLIQ VƏZİYYƏTİ:
+  - Cəmi: ${(equipment||[]).length} avadanlıq
+  - İşlək: ${ishlek} | Xarab: ${xarab} | Xidmətdə: ${xidmet}
+  - Kritik vəziyyətdə (50%-dən aşağı): ${kritik||"yoxdur"}
+  - Siyahı:
+${avadanliqSatiri}
+
+SENSOR / MONİTORİNQ MƏLUMATLARI (real vaxt):
+${sensorSatiri}
+
 QAYDALAR:
 - Həmişə Azərbaycan dilində cavab ver
 - Qısa, dəqiq və faydalı ol (3-5 cümlə)
-- Konkret rəqəmlər və otaq adları istifadə et
-- Tövsiyə verərkən boş otaqları üstün tut
-- Sistem məlumatlarına əsaslanmayan sualları da ümumi biliklə cavabla`;
+- Konkret rəqəmlər, otaq adları və avadanlıq adları istifadə et
+- Sistemlə əlaqəli olmayan sualları cavablama, "Bu sual sistemlə əlaqəli deyil" de`;
 }
 
-function AIAssistant({ rooms, reservations }) {
+function AIAssistant({ rooms, reservations, equipment }) {
   const [open, setOpen]     = useState(false);
   const [query, setQuery]   = useState("");
   const [msgs, setMsgs]     = useState([
@@ -849,7 +874,7 @@ function AIAssistant({ rooms, reservations }) {
         return;
       }
 
-      const systemText = buildSystemPrompt(rooms, reservations);
+      const systemText = buildSystemPrompt(rooms, reservations, equipment);
 
       const body = {
         system_instruction: { parts: [{ text: systemText }] },
@@ -861,7 +886,7 @@ function AIAssistant({ rooms, reservations }) {
       };
 
       const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`,
         { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) }
       );
       const data = await resp.json();
@@ -1042,7 +1067,7 @@ export default function App() {
       </main>
 
       {/* AI Assistant floating button */}
-      <AIAssistant rooms={rooms} reservations={reservations}/>
+      <AIAssistant rooms={rooms} reservations={reservations} equipment={equipment}/>
     </div>
   );
 }
