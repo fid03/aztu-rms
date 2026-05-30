@@ -768,7 +768,7 @@ function Monitoring({ rooms, equipment }) {
 }
 
 // ─── AI ASSISTANT (Gemini) ────────────────────────────────────────────────────
-const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";;
+const GEMINI_KEY = "";
 
 function buildSystemPrompt(rooms, reservations) {
   const today = new Date().toISOString().split("T")[0];
@@ -861,7 +861,7 @@ function AIAssistant({ rooms, reservations }) {
       };
 
       const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
         { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) }
       );
       const data = await resp.json();
