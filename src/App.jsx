@@ -767,35 +767,27 @@ function Monitoring({ rooms, equipment }) {
   );
 }
 
-// ─── AI ASSISTANT ─────────────────────────────────────────────────────────────
-function AIAssistant({ rooms, reservations }) {
-  const [open, setOpen]     = useState(false);
-  const [query, setQuery]   = useState("");
-  const [msgs, setMsgs]     = useState([
-    { role:"assistant", text:"Salam! Mən AzTU RMS AI Köməkçisiyəm. Otaq tövsiyəsi, rezervasiya planlaması və ya avadanlıq analizi üçün sual verin." }
-  ]);
-  const [loading, setLoading] = useState(false);
-  const msgsEndRef = useCallback(node => { if(node) node.scrollIntoView({behavior:"smooth"}); }, [loading]);
+// ─── AI ASSISTANT (Gemini) ────────────────────────────────────────────────────
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";;
 
-  // Build rich system prompt with full live data
-  const buildSystemPrompt = () => {
-    const today = new Date().toISOString().split("T")[0];
-    const bosOtaqlar   = rooms.filter(r=>r.status==="boş");
-    const meshgulOtaqlar = rooms.filter(r=>r.status==="məşğul");
-    const rezervOtaqlar  = rooms.filter(r=>r.status==="rezerv");
-    const todayRes     = reservations.filter(r=>r.date===today);
-    const pendingRes   = reservations.filter(r=>r.status==="gözlənilir");
-    const approvedRes  = reservations.filter(r=>r.status==="təsdiqlənib");
+function buildSystemPrompt(rooms, reservations) {
+  const today = new Date().toISOString().split("T")[0];
+  const bosOtaqlar     = rooms.filter(r=>r.status==="boş");
+  const meshgulOtaqlar = rooms.filter(r=>r.status==="məşğul");
+  const rezervOtaqlar  = rooms.filter(r=>r.status==="rezerv");
+  const todayRes   = reservations.filter(r=>r.date===today);
+  const pendingRes = reservations.filter(r=>r.status==="gözlənilir");
+  const approvedRes= reservations.filter(r=>r.status==="təsdiqlənib");
 
-    const otaqSatiri = rooms.map(r=>
-      `  • ${r.name} (${r.type}, mərtəbə ${r.floor}, ${r.capacity} nəfər, ${r.area}m²) — VƏZİYYƏT: ${r.status}`
-    ).join("\n");
+  const otaqSatiri = rooms.map(r=>
+    `  • ${r.name} (${r.type}, mərtəbə ${r.floor}, ${r.capacity} nəfər, ${r.area}m²) — VƏZİYYƏT: ${r.status}`
+  ).join("\n");
 
-    const rezervSatiri = reservations.slice(-10).map(r=>
-      `  • Otaq ${r.room} | ${r.user} | ${r.date} ${r.t1}-${r.t2} | Məqsəd: ${r.purpose} | Status: ${r.status}`
-    ).join("\n");
+  const rezervSatiri = reservations.slice(-10).map(r=>
+    `  • Otaq ${r.room} | ${r.user} | ${r.date} ${r.t1}-${r.t2} | Məqsəd: ${r.purpose} | Status: ${r.status}`
+  ).join("\n");
 
-    return `Sən AzTU (Azərbaycan Texniki Universiteti) Resurs İdarəetmə Sisteminin (RMS) ağıllı köməkçisisən.
+  return `Sən AzTU (Azərbaycan Texniki Universiteti) Resurs İdarəetmə Sisteminin (RMS) ağıllı köməkçisisən.
 
 CARI VƏZİYYƏT (${today}):
 Otaq statistikası:
@@ -811,7 +803,7 @@ REZERVASIYA VƏZİYYƏTİ:
   - Bu gün rezervasiya: ${todayRes.length} ədəd
   - Gözlənilən (təsdiqlənməmiş): ${pendingRes.length}
   - Təsdiqlənmiş: ${approvedRes.length}
-  - Cəmi rezervasiya (son qeydlər):
+  - Son qeydlər:
 ${rezervSatiri}
 
 QAYDALAR:
@@ -820,7 +812,16 @@ QAYDALAR:
 - Konkret rəqəmlər və otaq adları istifadə et
 - Tövsiyə verərkən boş otaqları üstün tut
 - Sistem məlumatlarına əsaslanmayan sualları da ümumi biliklə cavabla`;
-  };
+}
+
+function AIAssistant({ rooms, reservations }) {
+  const [open, setOpen]     = useState(false);
+  const [query, setQuery]   = useState("");
+  const [msgs, setMsgs]     = useState([
+    { role:"assistant", text:"Salam! Mən AzTU RMS AI Köməkçisiyəm. Otaq tövsiyəsi, rezervasiya planlaması və ya avadanlıq analizi üçün sual verin." }
+  ]);
+  const [loading, setLoading] = useState(false);
+  const msgsEndRef = useCallback(node => { if(node) node.scrollIntoView({behavior:"smooth"}); }, [loading]);
 
   const send = async (overrideMsg) => {
     const userMsg = (overrideMsg || query).trim();
@@ -831,28 +832,44 @@ QAYDALAR:
     setQuery("");
     setLoading(true);
 
-    // Build conversation history for API (exclude initial greeting from history)
+    // Build conversation history for Gemini (exclude initial greeting)
     const history = newMsgs.slice(1).map(m => ({
-      role: m.role === "user" ? "user" : "assistant",
-      content: m.text
+      role: m.role === "user" ? "user" : "model",
+      parts: [{ text: m.text }]
     }));
 
+    // Remove last user message from history — it goes in "contents" directly
+    const geminiHistory = history.slice(0, -1);
+    const lastUserText  = history[history.length - 1].parts[0].text;
+
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:500,
-          system: buildSystemPrompt(),
-          messages: history
-        })
-      });
+      if (!GEMINI_KEY) {
+        setMsgs(m=>[...m, {role:"assistant", text:"⚠️ Gemini API key tapılmadı. Vercel dashboard-da VITE_GEMINI_API_KEY dəyişənini əlavə edin."}]);
+        setLoading(false);
+        return;
+      }
+
+      const systemText = buildSystemPrompt(rooms, reservations);
+
+      const body = {
+        system_instruction: { parts: [{ text: systemText }] },
+        contents: [
+          ...geminiHistory,
+          { role: "user", parts: [{ text: lastUserText }] }
+        ],
+        generationConfig: { maxOutputTokens: 500, temperature: 0.7 }
+      };
+
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+        { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) }
+      );
       const data = await resp.json();
+
       if (data.error) {
         setMsgs(m=>[...m, {role:"assistant", text:`Xəta: ${data.error.message || "API xətası baş verdi."}`}]);
       } else {
-        const text = data.content?.[0]?.text || "Cavab ala bilmədim.";
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "Cavab ala bilmədim.";
         setMsgs(m=>[...m, {role:"assistant", text}]);
       }
     } catch(e) {
@@ -877,7 +894,7 @@ QAYDALAR:
             </div>
             <div>
               <div style={{color:"white",fontWeight:700,fontSize:13}}>AI Köməkçi</div>
-              <div style={{color:"rgba(255,255,255,0.6)",fontSize:10}}>Powered by Claude</div>
+              <div style={{color:"rgba(255,255,255,0.6)",fontSize:10}}>Powered by Gemini</div>
             </div>
           </div>
 
