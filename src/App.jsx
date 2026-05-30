@@ -768,7 +768,7 @@ function Monitoring({ rooms, equipment }) {
 }
 
 // ─── AI ASSISTANT (Gemini) ────────────────────────────────────────────────────
-const GEMINI_KEY = "";
+const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
 function buildSystemPrompt(rooms, reservations) {
   const today = new Date().toISOString().split("T")[0];
